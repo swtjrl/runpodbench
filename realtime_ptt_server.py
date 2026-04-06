@@ -172,80 +172,89 @@ def build_app(args: argparse.Namespace) -> FastAPI:
 
         try:
             while True:
-                msg = await ws.receive()
-                if "text" in msg and msg["text"] is not None:
-                    payload = json.loads(msg["text"])
-                    msg_type = payload.get("type")
+                try:
+                    msg = await ws.receive()
+                    if "text" in msg and msg["text"] is not None:
+                        payload = json.loads(msg["text"])
+                        msg_type = payload.get("type")
 
-                    if msg_type == "start":
-                        state.pcm.clear()
-                        state.ptt_started = True
-                        state.ptt_up_server_ts = None
-                        await ws.send_text(json.dumps({"type": "ack", "phase": "start"}))
+                        if msg_type == "start":
+                            state.pcm.clear()
+                            state.ptt_started = True
+                            state.ptt_up_server_ts = None
+                            await ws.send_text(json.dumps({"type": "ack", "phase": "start"}))
 
-                    elif msg_type == "stop":
-                        if not state.ptt_started:
-                            await ws.send_text(json.dumps({"type": "error", "message": "PTT not started"}))
-                            continue
+                        elif msg_type == "stop":
+                            if not state.ptt_started:
+                                await ws.send_text(json.dumps({"type": "error", "message": "PTT not started"}))
+                                continue
 
-                        state.ptt_up_server_ts = time.perf_counter()
-                        t_asr_start = time.perf_counter()
-                        asr_text = await asr_backend.transcribe_pcm(bytes(state.pcm), state.sample_rate)
-                        t_asr_done = time.perf_counter()
+                            if len(state.pcm) < 3200:
+                                state.ptt_started = False
+                                await ws.send_text(json.dumps({"type": "error", "message": "No audio captured. Check mic permission."}))
+                                continue
 
-                        prompt = (
-                            f"Translate the following transcription to natural {args.target_lang}. "
-                            f"Return only translated {args.target_lang} text.\n\n"
-                            f"Source:\n{asr_text}"
-                        )
+                            state.ptt_up_server_ts = time.perf_counter()
+                            t_asr_start = time.perf_counter()
+                            asr_text = await asr_backend.transcribe_pcm(bytes(state.pcm), state.sample_rate)
+                            t_asr_done = time.perf_counter()
 
-                        t_mt_start = time.perf_counter()
-                        mt_resp = await translator.chat.completions.create(
-                            model=args.gemma_model,
-                            messages=[{"role": "user", "content": prompt}],
-                            max_tokens=args.gemma_max_tokens,
-                            temperature=0.0,
-                        )
-                        translated = mt_resp.choices[0].message.content or ""
-                        t_mt_done = time.perf_counter()
-
-                        elapsed_asr_ms = (t_asr_done - t_asr_start) * 1000.0
-                        elapsed_mt_ms = (t_mt_done - t_mt_start) * 1000.0
-                        elapsed_from_ptt_up_ms = (t_mt_done - state.ptt_up_server_ts) * 1000.0
-
-                        await ws.send_text(
-                            json.dumps(
-                                {
-                                    "type": "final",
-                                    "asr_text": asr_text,
-                                    "translated_text": translated,
-                                    "elapsed": {
-                                        "asr_ms": round(elapsed_asr_ms, 2),
-                                        "mt_ms": round(elapsed_mt_ms, 2),
-                                        "ptt_up_to_translated_ms_server": round(elapsed_from_ptt_up_ms, 2),
-                                    },
-                                },
-                                ensure_ascii=False,
+                            prompt = (
+                                f"Translate the following transcription to natural {args.target_lang}. "
+                                f"Return only translated {args.target_lang} text.\n\n"
+                                f"Source:\n{asr_text}"
                             )
-                        )
 
-                        state.ptt_started = False
+                            t_mt_start = time.perf_counter()
+                            mt_resp = await translator.chat.completions.create(
+                                model=args.gemma_model,
+                                messages=[{"role": "user", "content": prompt}],
+                                max_tokens=args.gemma_max_tokens,
+                                temperature=0.0,
+                            )
+                            translated = mt_resp.choices[0].message.content or ""
+                            t_mt_done = time.perf_counter()
 
-                    elif msg_type == "ping":
-                        await ws.send_text(json.dumps({"type": "pong", "ts": time.time()}))
+                            elapsed_asr_ms = (t_asr_done - t_asr_start) * 1000.0
+                            elapsed_mt_ms = (t_mt_done - t_mt_start) * 1000.0
+                            elapsed_from_ptt_up_ms = (t_mt_done - state.ptt_up_server_ts) * 1000.0
 
-                elif "bytes" in msg and msg["bytes"] is not None:
-                    if not state.ptt_started:
-                        continue
-                    chunk = msg["bytes"]
-                    state.pcm.extend(chunk)
+                            await ws.send_text(
+                                json.dumps(
+                                    {
+                                        "type": "final",
+                                        "asr_text": asr_text,
+                                        "translated_text": translated,
+                                        "elapsed": {
+                                            "asr_ms": round(elapsed_asr_ms, 2),
+                                            "mt_ms": round(elapsed_mt_ms, 2),
+                                            "ptt_up_to_translated_ms_server": round(elapsed_from_ptt_up_ms, 2),
+                                        },
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            )
 
-                    if args.enable_partials:
-                        now = time.perf_counter()
-                        if (now - last_partial_at) >= args.partial_interval_sec and len(state.pcm) >= args.sample_rate * 2:
-                            last_partial_at = now
-                            partial = await asr_backend.transcribe_pcm(bytes(state.pcm), state.sample_rate)
-                            await ws.send_text(json.dumps({"type": "partial", "text": partial}, ensure_ascii=False))
+                            state.ptt_started = False
+
+                        elif msg_type == "ping":
+                            await ws.send_text(json.dumps({"type": "pong", "ts": time.time()}))
+
+                    elif "bytes" in msg and msg["bytes"] is not None:
+                        if not state.ptt_started:
+                            continue
+                        chunk = msg["bytes"]
+                        state.pcm.extend(chunk)
+
+                        if args.enable_partials:
+                            now = time.perf_counter()
+                            if (now - last_partial_at) >= args.partial_interval_sec and len(state.pcm) >= args.sample_rate * 2:
+                                last_partial_at = now
+                                partial = await asr_backend.transcribe_pcm(bytes(state.pcm), state.sample_rate)
+                                await ws.send_text(json.dumps({"type": "partial", "text": partial}, ensure_ascii=False))
+                except Exception as exc:  # noqa: BLE001
+                    state.ptt_started = False
+                    await ws.send_text(json.dumps({"type": "error", "message": str(exc)}))
 
         except WebSocketDisconnect:
             return

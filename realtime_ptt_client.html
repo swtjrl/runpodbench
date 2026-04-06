@@ -1,4 +1,4 @@
-<!doctype html>
+ï»¿<!doctype html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
@@ -18,7 +18,7 @@
 </head>
 <body>
   <div class="card">
-    <h2>Whisper small komix -> Gemma4 ¹ø¿ª Áö¿¬ ÃøÁ¤</h2>
+    <h2>Whisper small komix -> Gemma4 ë²ˆì—­ ì§€ì—° ì¸¡ì •</h2>
     <div class="row">
       <button id="connect">Connect WS</button>
       <button id="ptt" disabled>Hold to Talk (PTT)</button>
@@ -89,6 +89,10 @@
 
         if (data.type === "partial") {
           partialEl.textContent = data.text || "";
+          return;
+        }
+        if (data.type === "error") {
+          setStatus(`error: ${data.message || "unknown"}`);
           return;
         }
 
