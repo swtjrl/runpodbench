@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -12,6 +12,12 @@ UPLOADS_DIR="${UPLOADS_DIR:-${ROOT_DIR}/uploads}"
 VLLM_MIN_VERSION="${VLLM_MIN_VERSION:-0.16.0}"
 
 mkdir -p "${UPLOADS_DIR}"
+
+# Clean old processes for one-click restart
+pkill -f "vllm.entrypoints.openai.api_server" >/dev/null 2>&1 || true
+pkill -f "vllm serve ${GEMMA_MODEL}" >/dev/null 2>&1 || true
+pkill -f "realtime_ptt_server.py" >/dev/null 2>&1 || true
+pkill -f "cloudflared tunnel --url http://127.0.0.1:${PTT_PORT}" >/dev/null 2>&1 || true
 
 echo "[1/5] Installing dependencies..."
 python3 -m pip install --upgrade pip
@@ -34,14 +40,15 @@ PY
 echo "[2/5] Starting Gemma4 E2B on port ${GEMMA_PORT}..."
 export VLLM_MAX_AUDIO_CLIP_FILESIZE_MB="${VLLM_MAX_AUDIO_CLIP_FILESIZE_MB:-100}"
 export VLLM_AUDIO_FETCH_TIMEOUT="${VLLM_AUDIO_FETCH_TIMEOUT:-60}"
+
 if command -v vllm >/dev/null 2>&1; then
   nohup vllm serve "${GEMMA_MODEL}" \
     --host 0.0.0.0 \
     --port "${GEMMA_PORT}" \
-    --max-model-len 8192 \
+    --max-model-len 4096 \
     --gpu-memory-utilization 0.90 \
-    --max-num-seqs 16 \
-    --max-num-batched-tokens 16384 \
+    --max-num-seqs 4 \
+    --max-num-batched-tokens 4096 \
     --limit-mm-per-prompt image=4,audio=1 \
     --allowed-local-media-path "${UPLOADS_DIR}" \
     --async-scheduling \
@@ -51,18 +58,18 @@ else
     --model "${GEMMA_MODEL}" \
     --host 0.0.0.0 \
     --port "${GEMMA_PORT}" \
-    --max-model-len 8192 \
+    --max-model-len 4096 \
     --gpu-memory-utilization 0.90 \
-    --max-num-seqs 16 \
-    --max-num-batched-tokens 16384 \
-    --limit-mm-per-prompt image=4,audio=1 \
+    --max-num-seqs 4 \
+    --max-num-batched-tokens 4096 \
+    --limit-mm-per-prompt '{"image":4,"audio":1}' \
     --allowed-local-media-path "${UPLOADS_DIR}" \
     --async-scheduling \
     > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
 fi
 
 echo "[3/5] Waiting for Gemma server..."
-for _ in $(seq 1 120); do
+for _ in $(seq 1 180); do
   if curl -sf "http://127.0.0.1:${GEMMA_PORT}/v1/models" >/dev/null; then
     break
   fi
@@ -74,7 +81,7 @@ if ! curl -sf "http://127.0.0.1:${GEMMA_PORT}/v1/models" >/dev/null; then
   exit 1
 fi
 
-echo "[3.5/5] Verifying Gemma can answer (not just port-open)..."
+echo "[3.5/5] Verifying Gemma completion..."
 CHECK_PAYLOAD="$(cat <<JSON
 {
   "model": "${GEMMA_MODEL}",
@@ -88,12 +95,9 @@ CHECK_RESP="$(curl -sS "http://127.0.0.1:${GEMMA_PORT}/v1/chat/completions" \
   -H "Content-Type: application/json" \
   -d "${CHECK_PAYLOAD}" || true)"
 
-if ! echo "${CHECK_RESP}" | grep -q "\"choices\""; then
+if ! echo "${CHECK_RESP}" | grep -q '"choices"'; then
   echo "Gemma endpoint is up but completion failed."
-  echo "Likely causes:"
-  echo "1) HuggingFace access/token for google/gemma-4-E2B-it is missing"
-  echo "2) VRAM is insufficient and model loading failed"
-  echo "Check logs_gemma.txt (tail -n 200 logs_gemma.txt)"
+  echo "Check logs: tail -n 200 ${ROOT_DIR}/logs_gemma.txt"
   exit 1
 fi
 
@@ -105,7 +109,6 @@ nohup python3 "${ROOT_DIR}/realtime_ptt_server.py" \
   --gemma-model "${GEMMA_MODEL}" \
   --target-lang "${TARGET_LANG}" \
   --port "${PTT_PORT}" \
-  --enable-partials \
   > "${ROOT_DIR}/logs_ptt.txt" 2>&1 &
 
 for _ in $(seq 1 60); do
@@ -120,7 +123,7 @@ if ! curl -sf "http://127.0.0.1:${PTT_PORT}/" >/dev/null; then
   exit 1
 fi
 
-echo "[5/5] Creating public URL without port/SSH setup..."
+echo "[5/5] Creating public URL..."
 if ! command -v cloudflared >/dev/null 2>&1; then
   curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o "${ROOT_DIR}/cloudflared"
   chmod +x "${ROOT_DIR}/cloudflared"
@@ -129,14 +132,16 @@ else
   CF_BIN="$(command -v cloudflared)"
 fi
 
-nohup "${CF_BIN}" tunnel --url "http://127.0.0.1:${PTT_PORT}" > "${ROOT_DIR}/logs_tunnel.txt" 2>&1 &
-sleep 5
+nohup "${CF_BIN}" tunnel --url "http://127.0.0.1:${PTT_PORT}" --protocol http2 > "${ROOT_DIR}/logs_tunnel.txt" 2>&1 &
+sleep 6
 
 URL="$(grep -Eo 'https://[-a-zA-Z0-9]+\.trycloudflare\.com' "${ROOT_DIR}/logs_tunnel.txt" | head -n 1 || true)"
+echo "${URL}" > "${ROOT_DIR}/PTT_URL.txt"
 
 echo
 echo "===== READY ====="
 echo "PTT Web URL: ${URL:-not-found-yet}"
-echo "If URL is empty, run: tail -f ${ROOT_DIR}/logs_tunnel.txt"
+echo "Saved URL: ${ROOT_DIR}/PTT_URL.txt"
 echo "Gemma log: ${ROOT_DIR}/logs_gemma.txt"
 echo "PTT log:   ${ROOT_DIR}/logs_ptt.txt"
+echo "Tunnel log:${ROOT_DIR}/logs_tunnel.txt"
