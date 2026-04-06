@@ -59,32 +59,18 @@ echo "[2/5] Starting Gemma4 E2B on port ${GEMMA_PORT}..."
 export VLLM_MAX_AUDIO_CLIP_FILESIZE_MB="${VLLM_MAX_AUDIO_CLIP_FILESIZE_MB:-100}"
 export VLLM_AUDIO_FETCH_TIMEOUT="${VLLM_AUDIO_FETCH_TIMEOUT:-60}"
 
-if command -v vllm >/dev/null 2>&1; then
-  nohup vllm serve "${GEMMA_MODEL}" \
-    --host 0.0.0.0 \
-    --port "${GEMMA_PORT}" \
-    --max-model-len 4096 \
-    --gpu-memory-utilization 0.90 \
-    --max-num-seqs 4 \
-    --max-num-batched-tokens 4096 \
-    --limit-mm-per-prompt '{"image":4,"audio":1}' \
-    --allowed-local-media-path "${UPLOADS_DIR}" \
-    --async-scheduling \
-    > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
-else
-  nohup python3 -m vllm.entrypoints.openai.api_server \
-    --model "${GEMMA_MODEL}" \
-    --host 0.0.0.0 \
-    --port "${GEMMA_PORT}" \
-    --max-model-len 4096 \
-    --gpu-memory-utilization 0.90 \
-    --max-num-seqs 4 \
-    --max-num-batched-tokens 4096 \
-    --limit-mm-per-prompt '{"image":4,"audio":1}' \
-    --allowed-local-media-path "${UPLOADS_DIR}" \
-    --async-scheduling \
-    > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
-fi
+nohup python3 -m vllm.entrypoints.openai.api_server \
+  --model "${GEMMA_MODEL}" \
+  --host 0.0.0.0 \
+  --port "${GEMMA_PORT}" \
+  --max-model-len 4096 \
+  --gpu-memory-utilization 0.90 \
+  --max-num-seqs 4 \
+  --max-num-batched-tokens 4096 \
+  --limit-mm-per-prompt '{"image":4,"audio":1}' \
+  --allowed-local-media-path "${UPLOADS_DIR}" \
+  --async-scheduling \
+  > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
 
 echo "[3/5] Waiting for Gemma server..."
 for i in $(seq 1 180); do
