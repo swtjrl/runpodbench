@@ -37,6 +37,24 @@ if current < minimum:
 print(f"vLLM version OK: {current}")
 PY
 
+echo "[1.6/5] Checking Transformers supports gemma4..."
+if ! python3 - <<'PY'
+from transformers import AutoConfig
+cfg = AutoConfig.from_pretrained("google/gemma-4-E2B-it")
+print("model_type:", cfg.model_type)
+assert cfg.model_type == "gemma4"
+PY
+then
+  echo "Transformers does not support gemma4 yet. Upgrading from source..."
+  python3 -m pip install --upgrade --no-cache-dir git+https://github.com/huggingface/transformers.git accelerate sentencepiece protobuf
+  python3 - <<'PY'
+from transformers import AutoConfig
+cfg = AutoConfig.from_pretrained("google/gemma-4-E2B-it")
+print("model_type:", cfg.model_type)
+assert cfg.model_type == "gemma4"
+PY
+fi
+
 echo "[2/5] Starting Gemma4 E2B on port ${GEMMA_PORT}..."
 export VLLM_MAX_AUDIO_CLIP_FILESIZE_MB="${VLLM_MAX_AUDIO_CLIP_FILESIZE_MB:-100}"
 export VLLM_AUDIO_FETCH_TIMEOUT="${VLLM_AUDIO_FETCH_TIMEOUT:-60}"
