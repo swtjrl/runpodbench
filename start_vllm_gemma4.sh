@@ -31,7 +31,7 @@ if command -v vllm >/dev/null 2>&1; then
     --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
     --max-num-seqs "${MAX_NUM_SEQS}" \
     --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}" \
-    --limit-mm-per-prompt image=4,audio=1 \
+    --limit-mm-per-prompt '{"image":4,"audio":1}' \
     --allowed-local-media-path "${ALLOWED_LOCAL_MEDIA_PATH}" \
     --async-scheduling
 else

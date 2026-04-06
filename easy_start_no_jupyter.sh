@@ -49,7 +49,7 @@ if command -v vllm >/dev/null 2>&1; then
     --gpu-memory-utilization 0.90 \
     --max-num-seqs 4 \
     --max-num-batched-tokens 4096 \
-    --limit-mm-per-prompt image=4,audio=1 \
+    --limit-mm-per-prompt '{"image":4,"audio":1}' \
     --allowed-local-media-path "${UPLOADS_DIR}" \
     --async-scheduling \
     > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
