@@ -8,12 +8,32 @@ TARGET_LANG="${TARGET_LANG:-Japanese}"
 GEMMA_MODEL="${GEMMA_MODEL:-google/gemma-4-E2B-it}"
 GEMMA_PORT="${GEMMA_PORT:-8000}"
 PTT_PORT="${PTT_PORT:-9000}"
+UPLOADS_DIR="${UPLOADS_DIR:-${ROOT_DIR}/uploads}"
+VLLM_MIN_VERSION="${VLLM_MIN_VERSION:-0.16.0}"
+
+mkdir -p "${UPLOADS_DIR}"
 
 echo "[1/5] Installing dependencies..."
 python3 -m pip install --upgrade pip
-python3 -m pip install "vllm[audio]" openai fastapi uvicorn requests python-multipart "transformers>=4.50.0" accelerate torch soundfile librosa
+python3 -m pip install "vllm[audio]" openai fastapi uvicorn requests python-multipart "transformers>=4.50.0" accelerate torch soundfile librosa packaging
+
+echo "[1.5/5] Checking vLLM version..."
+python3 - <<PY
+import sys
+from packaging.version import Version
+import vllm
+
+current = Version(vllm.__version__)
+minimum = Version("${VLLM_MIN_VERSION}")
+if current < minimum:
+    print(f"vLLM too old: {current} < {minimum}")
+    sys.exit(1)
+print(f"vLLM version OK: {current}")
+PY
 
 echo "[2/5] Starting Gemma4 E2B on port ${GEMMA_PORT}..."
+export VLLM_MAX_AUDIO_CLIP_FILESIZE_MB="${VLLM_MAX_AUDIO_CLIP_FILESIZE_MB:-100}"
+export VLLM_AUDIO_FETCH_TIMEOUT="${VLLM_AUDIO_FETCH_TIMEOUT:-60}"
 nohup python3 -m vllm serve "${GEMMA_MODEL}" \
   --host 0.0.0.0 \
   --port "${GEMMA_PORT}" \
@@ -22,6 +42,7 @@ nohup python3 -m vllm serve "${GEMMA_MODEL}" \
   --max-num-seqs 16 \
   --max-num-batched-tokens 16384 \
   --limit-mm-per-prompt image=4,audio=1 \
+  --allowed-local-media-path "${UPLOADS_DIR}" \
   --async-scheduling \
   > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
 

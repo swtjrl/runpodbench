@@ -104,3 +104,14 @@ python3 ./realtime_ptt_server.py \
 `easy_start_no_jupyter.sh`는 이제 `/v1/chat/completions` 실응답까지 확인한다.
 실패하면 즉시 중단하고 `logs_gemma.txt` 확인 안내를 출력한다.
 
+
+## Gemma4 Audio 이슈 체크 반영
+
+다음 이슈들을 반영해 기본 설정을 바꿨다.
+
+- `vllm[audio]` 미설치 시 오디오 API 동작 안 함 -> 설치 강제
+- 오디오 URL fetch 타임아웃 기본 10초로 실패 가능 -> `VLLM_AUDIO_FETCH_TIMEOUT=60` 기본 적용
+- 큰 오디오 파일 거부 가능(기본 25MB) -> `VLLM_MAX_AUDIO_CLIP_FILESIZE_MB=100` 기본 적용
+- 원격/로컬 URL fetch 불안정 이슈 -> 업로드 오디오를 `file://` 경로로 직접 전달
+- 로컬 파일 접근 차단 이슈 -> `--allowed-local-media-path /workspace/runpodbench/uploads` 적용
+

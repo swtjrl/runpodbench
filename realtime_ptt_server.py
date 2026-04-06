@@ -122,24 +122,37 @@ def build_app(args: argparse.Namespace) -> FastAPI:
             shutil.copyfileobj(audio.file, fp)
 
         ts_model_start = time.perf_counter()
-        audio_url = f"http://127.0.0.1:{args.port}/uploads/{safe_name}"
+        audio_url = saved_path.resolve().as_uri()
         prompt = f"Transcribe this audio and translate it to {args.target_lang}. Return only the translated text."
-        resp = await translator.chat.completions.create(
-            model=args.gemma_model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "audio_url", "audio_url": {"url": audio_url}},
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
-            max_tokens=args.gemma_max_tokens,
-            temperature=0.0,
-        )
-        ts_done = time.perf_counter()
-        out_text = resp.choices[0].message.content or ""
+        try:
+            resp = await translator.chat.completions.create(
+                model=args.gemma_model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "audio_url", "audio_url": {"url": audio_url}},
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ],
+                max_tokens=args.gemma_max_tokens,
+                temperature=0.0,
+            )
+            ts_done = time.perf_counter()
+            out_text = resp.choices[0].message.content or ""
+        except Exception as exc:  # noqa: BLE001
+            ts_done = time.perf_counter()
+            return {
+                "ok": False,
+                "file_name": safe_name,
+                "error": str(exc),
+                "audio_url": audio_url,
+                "elapsed": {
+                    "upload_plus_total_ms_server": round((ts_done - ts_req_start) * 1000.0, 2),
+                    "model_only_ms_server": round((ts_done - ts_model_start) * 1000.0, 2),
+                },
+            }
 
         return {
             "ok": True,
