@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PTT Realtime Benchmark</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; background: #f4f6f8; color: #111; }
+    .card { background: #fff; border-radius: 12px; padding: 16px; max-width: 880px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    button { padding: 12px 16px; border: 0; border-radius: 8px; cursor: pointer; margin-right: 8px; }
+    #connect { background: #222; color: #fff; }
+    #ptt { background: #0078d4; color: #fff; }
+    #ptt.active { background: #d83b01; }
+    pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow: auto; }
+    .row { margin: 10px 0; }
+    .mono { font-family: Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Whisper small komix -> Gemma4 번역 지연 측정</h2>
+    <div class="row">
+      <button id="connect">Connect WS</button>
+      <button id="ptt" disabled>Hold to Talk (PTT)</button>
+    </div>
+
+    <div class="row">Status: <span id="status" class="mono">disconnected</span></div>
+    <div class="row">Partial: <span id="partial" class="mono"></span></div>
+
+    <h3>Final ASR</h3>
+    <pre id="asr"></pre>
+
+    <h3>Final Translation</h3>
+    <pre id="mt"></pre>
+
+    <h3>Elapsed</h3>
+    <pre id="elapsed"></pre>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const partialEl = document.getElementById("partial");
+    const asrEl = document.getElementById("asr");
+    const mtEl = document.getElementById("mt");
+    const elapsedEl = document.getElementById("elapsed");
+
+    const connectBtn = document.getElementById("connect");
+    const pttBtn = document.getElementById("ptt");
+
+    let ws = null;
+    let audioCtx = null;
+    let mediaStream = null;
+    let sourceNode = null;
+    let processorNode = null;
+    let isTalking = false;
+    let pttUpClientMs = null;
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    connectBtn.onclick = () => {
+      if (ws && ws.readyState === WebSocket.OPEN) return;
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(`${proto}://${location.host}/ws/ptt`);
+      ws.binaryType = "arraybuffer";
+
+      ws.onopen = () => {
+        setStatus("connected");
+        pttBtn.disabled = false;
+      };
+
+      ws.onclose = () => {
+        setStatus("closed");
+        pttBtn.disabled = true;
+      };
+
+      ws.onerror = () => {
+        setStatus("error");
+      };
+
+      ws.onmessage = (evt) => {
+        let data;
+        try {
+          data = JSON.parse(evt.data);
+        } catch {
+          return;
+        }
+
+        if (data.type === "partial") {
+          partialEl.textContent = data.text || "";
+          return;
+        }
+
+        if (data.type === "final") {
+          const clientDoneMs = performance.now();
+          const clientElapsed = pttUpClientMs != null ? (clientDoneMs - pttUpClientMs) : null;
+
+          asrEl.textContent = data.asr_text || "";
+          mtEl.textContent = data.translated_text || "";
+          elapsedEl.textContent = JSON.stringify(
+            {
+              ...data.elapsed,
+              ptt_up_to_translated_ms_client: clientElapsed != null ? Number(clientElapsed.toFixed(2)) : null,
+            },
+            null,
+            2
+          );
+        }
+      };
+    };
+
+    async function ensureAudio() {
+      if (audioCtx) return;
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, sampleRate: 16000 } });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      sourceNode = audioCtx.createMediaStreamSource(mediaStream);
+      processorNode = audioCtx.createScriptProcessor(4096, 1, 1);
+
+      processorNode.onaudioprocess = (e) => {
+        if (!isTalking || !ws || ws.readyState !== WebSocket.OPEN) return;
+        const input = e.inputBuffer.getChannelData(0);
+        const pcm16 = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+          const s = Math.max(-1, Math.min(1, input[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        ws.send(pcm16.buffer);
+      };
+
+      sourceNode.connect(processorNode);
+      processorNode.connect(audioCtx.destination);
+    }
+
+    async function startPTT() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      await ensureAudio();
+      asrEl.textContent = "";
+      mtEl.textContent = "";
+      partialEl.textContent = "";
+      elapsedEl.textContent = "";
+
+      ws.send(JSON.stringify({ type: "start" }));
+      isTalking = true;
+      pttBtn.classList.add("active");
+      pttBtn.textContent = "Talking... Release to Stop";
+    }
+
+    function stopPTT() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!isTalking) return;
+      isTalking = false;
+      pttBtn.classList.remove("active");
+      pttBtn.textContent = "Hold to Talk (PTT)";
+      pttUpClientMs = performance.now();
+      ws.send(JSON.stringify({ type: "stop" }));
+    }
+
+    pttBtn.addEventListener("mousedown", startPTT);
+    pttBtn.addEventListener("touchstart", (e) => { e.preventDefault(); startPTT(); }, { passive: false });
+
+    pttBtn.addEventListener("mouseup", stopPTT);
+    pttBtn.addEventListener("mouseleave", () => { if (isTalking) stopPTT(); });
+    pttBtn.addEventListener("touchend", (e) => { e.preventDefault(); stopPTT(); }, { passive: false });
+  </script>
+</body>
+</html>
