@@ -69,9 +69,17 @@ else
 fi
 
 echo "[3/5] Waiting for Gemma server..."
-for _ in $(seq 1 180); do
+for i in $(seq 1 180); do
   if curl -sf "http://127.0.0.1:${GEMMA_PORT}/v1/models" >/dev/null; then
     break
+  fi
+  if (( i % 5 == 0 )); then
+    echo "[3/5] still waiting... (${i}/180)"
+    echo "----- gemma log tail -----"
+    tail -n 12 "${ROOT_DIR}/logs_gemma.txt" || true
+    echo "----- gpu -----"
+    nvidia-smi --query-gpu=name,memory.used,memory.total,utilization.gpu --format=csv,noheader || true
+    echo "--------------------------"
   fi
   sleep 2
 done
