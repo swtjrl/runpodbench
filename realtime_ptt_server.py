@@ -12,6 +12,7 @@ import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import numpy as np
 
 from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
@@ -61,10 +62,10 @@ class TransformersASR:
         return await loop.run_in_executor(None, self._transcribe_sync, pcm_bytes, sample_rate)
 
     def _transcribe_sync(self, pcm_bytes: bytes, sample_rate: int) -> str:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as fp:
-            _write_wav(fp.name, pcm_bytes, sample_rate)
-            out = self.pipe(fp.name)
-            return out.get("text", "").strip()
+        # Avoid ffmpeg filename decoding path by sending raw waveform array.
+        wav = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        out = self.pipe({"array": wav, "sampling_rate": sample_rate})
+        return out.get("text", "").strip()
 
 
 class VllmASR:
