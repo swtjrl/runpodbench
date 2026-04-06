@@ -22,6 +22,7 @@ pkill -f "cloudflared tunnel --url http://127.0.0.1:${PTT_PORT}" >/dev/null 2>&1
 echo "[1/5] Installing dependencies..."
 python3 -m pip install --upgrade pip
 python3 -m pip install "vllm[audio]" openai fastapi uvicorn requests python-multipart "transformers>=4.50.0" accelerate torch soundfile librosa packaging
+python3 -m pip install --upgrade --no-cache-dir git+https://github.com/huggingface/transformers.git
 
 echo "[1.5/5] Checking vLLM version..."
 python3 - <<PY
@@ -38,22 +39,12 @@ print(f"vLLM version OK: {current}")
 PY
 
 echo "[1.6/5] Checking Transformers supports gemma4..."
-if ! python3 - <<'PY'
+python3 - <<'PY'
 from transformers import AutoConfig
 cfg = AutoConfig.from_pretrained("google/gemma-4-E2B-it")
 print("model_type:", cfg.model_type)
 assert cfg.model_type == "gemma4"
 PY
-then
-  echo "Transformers does not support gemma4 yet. Upgrading from source..."
-  python3 -m pip install --upgrade --no-cache-dir git+https://github.com/huggingface/transformers.git accelerate sentencepiece protobuf
-  python3 - <<'PY'
-from transformers import AutoConfig
-cfg = AutoConfig.from_pretrained("google/gemma-4-E2B-it")
-print("model_type:", cfg.model_type)
-assert cfg.model_type == "gemma4"
-PY
-fi
 
 echo "[2/5] Starting Gemma4 E2B on port ${GEMMA_PORT}..."
 export VLLM_MAX_AUDIO_CLIP_FILESIZE_MB="${VLLM_MAX_AUDIO_CLIP_FILESIZE_MB:-100}"
