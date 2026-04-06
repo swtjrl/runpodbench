@@ -38,6 +38,29 @@ if ! curl -sf "http://127.0.0.1:${GEMMA_PORT}/v1/models" >/dev/null; then
   exit 1
 fi
 
+echo "[3.5/5] Verifying Gemma can answer (not just port-open)..."
+CHECK_PAYLOAD="$(cat <<JSON
+{
+  "model": "${GEMMA_MODEL}",
+  "messages": [{"role":"user","content":"Reply with exactly: ok"}],
+  "max_tokens": 8,
+  "temperature": 0
+}
+JSON
+)"
+CHECK_RESP="$(curl -sS "http://127.0.0.1:${GEMMA_PORT}/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d "${CHECK_PAYLOAD}" || true)"
+
+if ! echo "${CHECK_RESP}" | grep -q "\"choices\""; then
+  echo "Gemma endpoint is up but completion failed."
+  echo "Likely causes:"
+  echo "1) HuggingFace access/token for google/gemma-4-E2B-it is missing"
+  echo "2) VRAM 부족으로 모델 로드 실패"
+  echo "Check logs_gemma.txt (tail -n 200 logs_gemma.txt)"
+  exit 1
+fi
+
 echo "[4/5] Starting realtime PTT server on port ${PTT_PORT}..."
 nohup python3 "${ROOT_DIR}/realtime_ptt_server.py" \
   --asr-backend transformers \
@@ -81,4 +104,3 @@ echo "PTT Web URL: ${URL:-not-found-yet}"
 echo "If URL is empty, run: tail -f ${ROOT_DIR}/logs_tunnel.txt"
 echo "Gemma log: ${ROOT_DIR}/logs_gemma.txt"
 echo "PTT log:   ${ROOT_DIR}/logs_ptt.txt"
-

@@ -20,7 +20,7 @@ fi
 
 echo "Launching ${MODEL_ID} on ${HOST}:${PORT}"
 
-vllm serve "${MODEL_ID}" \
+python3 -m vllm serve "${MODEL_ID}" \
   --host "${HOST}" \
   --port "${PORT}" \
   --max-model-len "${MAX_MODEL_LEN}" \

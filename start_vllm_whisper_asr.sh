@@ -6,7 +6,7 @@ MODEL="${MODEL:-seastar105/whisper-small-komixv2}"
 PORT="${PORT:-8001}"
 HOST="${HOST:-0.0.0.0}"
 
-vllm serve "${MODEL}" \
+python3 -m vllm serve "${MODEL}" \
   --host "${HOST}" \
   --port "${PORT}" \
   --max-model-len 448 \

@@ -98,3 +98,9 @@ python3 ./realtime_ptt_server.py \
   --target-lang Japanese \
   --enable-partials
 ```
+
+### e2b가 실제 동작하는지 확인
+
+`easy_start_no_jupyter.sh`는 이제 `/v1/chat/completions` 실응답까지 확인한다.
+실패하면 즉시 중단하고 `logs_gemma.txt` 확인 안내를 출력한다.
+
