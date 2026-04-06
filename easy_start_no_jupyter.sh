@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,17 +34,32 @@ PY
 echo "[2/5] Starting Gemma4 E2B on port ${GEMMA_PORT}..."
 export VLLM_MAX_AUDIO_CLIP_FILESIZE_MB="${VLLM_MAX_AUDIO_CLIP_FILESIZE_MB:-100}"
 export VLLM_AUDIO_FETCH_TIMEOUT="${VLLM_AUDIO_FETCH_TIMEOUT:-60}"
-nohup python3 -m vllm serve "${GEMMA_MODEL}" \
-  --host 0.0.0.0 \
-  --port "${GEMMA_PORT}" \
-  --max-model-len 8192 \
-  --gpu-memory-utilization 0.90 \
-  --max-num-seqs 16 \
-  --max-num-batched-tokens 16384 \
-  --limit-mm-per-prompt image=4,audio=1 \
-  --allowed-local-media-path "${UPLOADS_DIR}" \
-  --async-scheduling \
-  > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
+if command -v vllm >/dev/null 2>&1; then
+  nohup vllm serve "${GEMMA_MODEL}" \
+    --host 0.0.0.0 \
+    --port "${GEMMA_PORT}" \
+    --max-model-len 8192 \
+    --gpu-memory-utilization 0.90 \
+    --max-num-seqs 16 \
+    --max-num-batched-tokens 16384 \
+    --limit-mm-per-prompt image=4,audio=1 \
+    --allowed-local-media-path "${UPLOADS_DIR}" \
+    --async-scheduling \
+    > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
+else
+  nohup python3 -m vllm.entrypoints.openai.api_server \
+    --model "${GEMMA_MODEL}" \
+    --host 0.0.0.0 \
+    --port "${GEMMA_PORT}" \
+    --max-model-len 8192 \
+    --gpu-memory-utilization 0.90 \
+    --max-num-seqs 16 \
+    --max-num-batched-tokens 16384 \
+    --limit-mm-per-prompt image=4,audio=1 \
+    --allowed-local-media-path "${UPLOADS_DIR}" \
+    --async-scheduling \
+    > "${ROOT_DIR}/logs_gemma.txt" 2>&1 &
+fi
 
 echo "[3/5] Waiting for Gemma server..."
 for _ in $(seq 1 120); do
@@ -77,7 +92,7 @@ if ! echo "${CHECK_RESP}" | grep -q "\"choices\""; then
   echo "Gemma endpoint is up but completion failed."
   echo "Likely causes:"
   echo "1) HuggingFace access/token for google/gemma-4-E2B-it is missing"
-  echo "2) VRAM 부족으로 모델 로드 실패"
+  echo "2) VRAM is insufficient and model loading failed"
   echo "Check logs_gemma.txt (tail -n 200 logs_gemma.txt)"
   exit 1
 fi

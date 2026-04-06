@@ -23,13 +23,27 @@ echo "Launching ${MODEL_ID} on ${HOST}:${PORT}"
 export VLLM_MAX_AUDIO_CLIP_FILESIZE_MB="${VLLM_MAX_AUDIO_CLIP_FILESIZE_MB:-100}"
 export VLLM_AUDIO_FETCH_TIMEOUT="${VLLM_AUDIO_FETCH_TIMEOUT:-60}"
 
-python3 -m vllm serve "${MODEL_ID}" \
-  --host "${HOST}" \
-  --port "${PORT}" \
-  --max-model-len "${MAX_MODEL_LEN}" \
-  --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
-  --max-num-seqs "${MAX_NUM_SEQS}" \
-  --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}" \
-  --limit-mm-per-prompt image=4,audio=1 \
-  --allowed-local-media-path "${ALLOWED_LOCAL_MEDIA_PATH}" \
-  --async-scheduling
+if command -v vllm >/dev/null 2>&1; then
+  vllm serve "${MODEL_ID}" \
+    --host "${HOST}" \
+    --port "${PORT}" \
+    --max-model-len "${MAX_MODEL_LEN}" \
+    --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
+    --max-num-seqs "${MAX_NUM_SEQS}" \
+    --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}" \
+    --limit-mm-per-prompt image=4,audio=1 \
+    --allowed-local-media-path "${ALLOWED_LOCAL_MEDIA_PATH}" \
+    --async-scheduling
+else
+  python3 -m vllm.entrypoints.openai.api_server \
+    --model "${MODEL_ID}" \
+    --host "${HOST}" \
+    --port "${PORT}" \
+    --max-model-len "${MAX_MODEL_LEN}" \
+    --gpu-memory-utilization "${GPU_MEMORY_UTILIZATION}" \
+    --max-num-seqs "${MAX_NUM_SEQS}" \
+    --max-num-batched-tokens "${MAX_NUM_BATCHED_TOKENS}" \
+    --limit-mm-per-prompt image=4,audio=1 \
+    --allowed-local-media-path "${ALLOWED_LOCAL_MEDIA_PATH}" \
+    --async-scheduling
+fi
