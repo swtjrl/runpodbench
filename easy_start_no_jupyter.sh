@@ -10,6 +10,7 @@ GEMMA_PORT="${GEMMA_PORT:-8000}"
 PTT_PORT="${PTT_PORT:-9000}"
 UPLOADS_DIR="${UPLOADS_DIR:-${ROOT_DIR}/uploads}"
 VLLM_MIN_VERSION="${VLLM_MIN_VERSION:-0.16.0}"
+VENV_DIR="${VENV_DIR:-${ROOT_DIR}/.venv}"
 
 mkdir -p "${UPLOADS_DIR}"
 
@@ -20,12 +21,16 @@ pkill -f "realtime_ptt_server.py" >/dev/null 2>&1 || true
 pkill -f "cloudflared tunnel --url http://127.0.0.1:${PTT_PORT}" >/dev/null 2>&1 || true
 
 echo "[1/5] Installing dependencies..."
-python3 -m pip install --upgrade pip
-python3 -m pip install "vllm[audio]" openai fastapi uvicorn requests python-multipart "transformers>=4.50.0" accelerate torch soundfile librosa packaging
-python3 -m pip install --upgrade --no-cache-dir git+https://github.com/huggingface/transformers.git
+python3 -m venv "${VENV_DIR}"
+VENV_PY="${VENV_DIR}/bin/python"
+VENV_PIP="${VENV_DIR}/bin/pip"
+
+"${VENV_PIP}" install --upgrade pip
+"${VENV_PIP}" install "vllm[audio]" openai fastapi uvicorn requests python-multipart "transformers>=4.50.0" accelerate torch soundfile librosa packaging
+"${VENV_PIP}" install --upgrade --no-cache-dir --force-reinstall git+https://github.com/huggingface/transformers.git
 
 echo "[1.5/5] Checking vLLM version..."
-python3 - <<PY
+"${VENV_PY}" - <<PY
 import sys
 from packaging.version import Version
 import vllm
@@ -39,7 +44,7 @@ print(f"vLLM version OK: {current}")
 PY
 
 echo "[1.6/5] Checking Transformers supports gemma4..."
-python3 - <<'PY'
+"${VENV_PY}" - <<'PY'
 from transformers import AutoConfig
 cfg = AutoConfig.from_pretrained("google/gemma-4-E2B-it")
 print("model_type:", cfg.model_type)
@@ -50,7 +55,7 @@ echo "[2/5] Starting Gemma4 E2B on port ${GEMMA_PORT}..."
 export VLLM_MAX_AUDIO_CLIP_FILESIZE_MB="${VLLM_MAX_AUDIO_CLIP_FILESIZE_MB:-100}"
 export VLLM_AUDIO_FETCH_TIMEOUT="${VLLM_AUDIO_FETCH_TIMEOUT:-60}"
 
-nohup python3 -m vllm.entrypoints.openai.api_server \
+nohup "${VENV_PY}" -m vllm.entrypoints.openai.api_server \
   --model "${GEMMA_MODEL}" \
   --host 0.0.0.0 \
   --port "${GEMMA_PORT}" \
@@ -105,7 +110,7 @@ if ! echo "${CHECK_RESP}" | grep -q '"choices"'; then
 fi
 
 echo "[4/5] Starting realtime PTT server on port ${PTT_PORT}..."
-nohup python3 "${ROOT_DIR}/realtime_ptt_server.py" \
+nohup "${VENV_PY}" "${ROOT_DIR}/realtime_ptt_server.py" \
   --asr-backend transformers \
   --whisper-model seastar105/whisper-small-komixv2 \
   --gemma-base-url "http://127.0.0.1:${GEMMA_PORT}/v1" \
